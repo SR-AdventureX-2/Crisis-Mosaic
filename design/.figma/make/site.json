@@ -1,0 +1,10 @@
+{
+  "description": "This web application streamlines emergency rescue operations by allowing responders to quickly access and update critical information while enabling victims to submit their details with minimal interaction.",
+  "robots": {
+    "index": false
+  },
+  "accessibility": {
+    "addBypassLinks": false,
+    "ignoreReducedMotion": false
+  }
+}

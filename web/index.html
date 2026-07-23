@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <!--
+    If you are serving your web app in a path other than the root, change the
+    href value below to reflect the base path you are serving from.
+
+    The path provided below has to start and end with a slash "/" in order for
+    it to work correctly.
+
+    For more details:
+    * https://developer.mozilla.org/en-US/docs/Web/HTML/Element/base
+
+    This is a placeholder for base href that will be replaced by the value of
+    the `--base-href` argument provided to `flutter build`.
+  -->
+  <base href="$FLUTTER_BASE_HREF">
+
+  <meta charset="UTF-8">
+  <meta content="IE=Edge" http-equiv="X-UA-Compatible">
+  <meta name="description" content="Crisis Mosaic 灾害现场信息协作演示">
+
+  <!-- iOS meta tags & icons -->
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black">
+  <meta name="apple-mobile-web-app-title" content="Crisis Mosaic">
+  <link rel="apple-touch-icon" href="icons/Icon-192.png">
+
+  <!-- Favicon -->
+  <link rel="icon" type="image/png" href="favicon.png"/>
+
+  <title>Crisis Mosaic</title>
+  <link rel="manifest" href="manifest.json">
+  <style>
+    html, body {
+      width: 100%;
+      height: 100%;
+      margin: 0;
+      background: #F7F4EF;
+      color: #2E2A26;
+      font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+    }
+
+    #app-loading {
+      position: fixed;
+      inset: 0;
+      z-index: 0;
+      display: grid;
+      place-items: center;
+      padding: 24px;
+      pointer-events: none;
+    }
+
+    .loading-content {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 18px;
+      text-align: center;
+    }
+
+    .mosaic-mark {
+      position: relative;
+      width: 72px;
+      height: 72px;
+      animation: breathe 1.8s ease-in-out infinite;
+    }
+
+    .mosaic-mark span {
+      position: absolute;
+      border: 2px solid #2E2A26;
+      box-sizing: border-box;
+    }
+
+    .mosaic-mark span:nth-child(1) {
+      left: 3px;
+      top: 25px;
+      width: 28px;
+      height: 28px;
+      border-radius: 50%;
+      background: rgba(217, 164, 65, .75);
+    }
+
+    .mosaic-mark span:nth-child(2) {
+      right: 4px;
+      top: 4px;
+      width: 31px;
+      height: 31px;
+      background: rgba(36, 86, 166, .75);
+      transform: rotate(45deg);
+    }
+
+    .mosaic-mark span:nth-child(3) {
+      right: 6px;
+      bottom: 3px;
+      width: 35px;
+      height: 16px;
+      border-radius: 3px;
+      background: rgba(46, 125, 91, .75);
+    }
+
+    .loading-title {
+      margin: 0;
+      font-size: 22px;
+      font-weight: 800;
+      letter-spacing: -.3px;
+    }
+
+    .loading-status {
+      margin: 0;
+      color: #79736D;
+      font-size: 14px;
+      font-weight: 600;
+    }
+
+    @keyframes breathe {
+      0%, 100% { transform: scale(.96); opacity: .72; }
+      50% { transform: scale(1.04); opacity: 1; }
+    }
+
+    flutter-view, flt-glass-pane {
+      position: relative;
+      z-index: 1;
+    }
+  </style>
+</head>
+<body>
+  <div id="app-loading" role="status" aria-live="polite">
+    <div class="loading-content">
+      <div class="mosaic-mark" aria-hidden="true">
+        <span></span><span></span><span></span>
+      </div>
+      <div>
+        <p class="loading-title">Crisis Mosaic</p>
+        <p class="loading-status">正在加载灾害信息界面…</p>
+      </div>
+    </div>
+  </div>
+  <noscript>此应用需要启用 JavaScript 才能运行。</noscript>
+  <!--
+    You can customize the "flutter_bootstrap.js" script.
+    This is useful to provide a custom configuration to the Flutter loader
+    or to give the user feedback during the initialization process.
+
+    For more details:
+    * https://docs.flutter.dev/platform-integration/web/initialization
+  -->
+  <script>
+    window.addEventListener('flutter-first-frame', function () {
+      document.getElementById('app-loading')?.remove();
+    });
+  </script>
+  <script src="flutter_bootstrap.js" async></script>
+</body>
+</html>
