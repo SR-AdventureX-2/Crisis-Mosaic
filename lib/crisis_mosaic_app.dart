@@ -3,8 +3,10 @@ import 'package:flutter/services.dart';
 
 import 'design_system.dart';
 import 'models/citizen_report.dart';
+import 'models/conflict_analysis.dart';
 import 'screens/command_screen.dart';
 import 'screens/resident_screens.dart';
+import 'services/ai_analysis_service.dart';
 import 'widgets/role_navigation.dart';
 
 enum MosaicScreen { command, resident, question, report, success }
@@ -38,6 +40,8 @@ class _CrisisMosaicShellState extends State<CrisisMosaicShell> {
   CitizenReport? _editingReport;
   int _nextReportId = 1;
   bool _conflictAnalyzing = false;
+  AiConflictAnalysisResult? _conflictAnalysis;
+  String? _conflictAnalysisError;
   bool _conflictResolved = false;
   bool _roadFlooded = true;
 
@@ -168,8 +172,46 @@ class _CrisisMosaicShellState extends State<CrisisMosaicShell> {
     });
   }
 
-  void _analyzeConflict() {
-    setState(() => _conflictAnalyzing = true);
+  Future<void> _analyzeConflict() async {
+    if (_conflictAnalyzing) {
+      return;
+    }
+    setState(() {
+      _conflictAnalyzing = true;
+      _conflictAnalysisError = null;
+    });
+    try {
+      final result = await aiAnalysisService.analyzeConflict(
+        conflictId: 'along-river-road-passability',
+        conflictRevision: 1,
+        location: '沿江路东段',
+        topic: 'road_passability',
+        evidence: demoRoadConflictEvidence,
+      );
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _conflictAnalysis = result;
+        _conflictAnalyzing = false;
+      });
+    } on AiAnalysisException catch (error) {
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _conflictAnalyzing = false;
+        _conflictAnalysisError = error.message;
+      });
+    } on Object {
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _conflictAnalyzing = false;
+        _conflictAnalysisError = '冲突分析暂时不可用，请稍后重试。';
+      });
+    }
   }
 
   void _resolveConflict(bool roadFlooded) {
@@ -296,6 +338,8 @@ class _CrisisMosaicShellState extends State<CrisisMosaicShell> {
         citizenReports: _sortedReports,
         directedReport: _directedReport,
         conflictAnalyzing: _conflictAnalyzing,
+        conflictAnalysis: _conflictAnalysis,
+        conflictAnalysisError: _conflictAnalysisError,
         conflictResolved: _conflictResolved,
         roadFlooded: _roadFlooded,
         onAnalyzeConflict: _analyzeConflict,

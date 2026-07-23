@@ -14,15 +14,24 @@ void main() {
     await tester.pumpWidget(const CrisisMosaicApp());
 
     expect(find.text('杭州 · 洪灾'), findsOneWidget);
+    expect(find.byKey(const Key('amap-location-map')), findsOneWidget);
+    expect(find.byKey(const Key('amap-desktop-unsupported')), findsOneWidget);
     expect(find.text('沿江路通行状态冲突'), findsOneWidget);
     expect(find.text('大关桥通行状态未知'), findsOneWidget);
 
     await tester.ensureVisible(find.byKey(const Key('analyze-conflict')));
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(const Key('analyze-conflict')));
+    await tester.pump(const Duration(milliseconds: 1500));
     await tester.pumpAndSettle();
 
     expect(find.text('AI 推断：水位上涨中，建议采信最新上报'), findsOneWidget);
+    expect(find.byKey(const Key('conflict-api-result')), findsOneWidget);
+    expect(find.textContaining('2 张图片'), findsWidgets);
+    expect(find.textContaining('3 条文字'), findsWidgets);
+    expect(find.text('证据真实性与可信度排序'), findsOneWidget);
+    expect(find.textContaining('真实性'), findsWidgets);
+    expect(find.textContaining('可信度'), findsWidgets);
     await tester.ensureVisible(find.byKey(const Key('accept-latest')));
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(const Key('accept-latest')));

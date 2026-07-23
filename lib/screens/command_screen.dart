@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../design_system.dart';
 import '../models/citizen_report.dart';
+import '../models/conflict_analysis.dart';
 import '../models/info_fragment.dart';
 import '../services/ai_analysis_service.dart';
 import '../widgets/fragment_card.dart';
@@ -15,6 +16,8 @@ class CommandScreen extends StatefulWidget {
     required this.citizenReports,
     required this.directedReport,
     required this.conflictAnalyzing,
+    required this.conflictAnalysis,
+    required this.conflictAnalysisError,
     required this.conflictResolved,
     required this.roadFlooded,
     required this.onAnalyzeConflict,
@@ -24,6 +27,8 @@ class CommandScreen extends StatefulWidget {
   final List<CitizenReport> citizenReports;
   final CitizenReport? directedReport;
   final bool conflictAnalyzing;
+  final AiConflictAnalysisResult? conflictAnalysis;
+  final String? conflictAnalysisError;
   final bool conflictResolved;
   final bool roadFlooded;
   final VoidCallback onAnalyzeConflict;
@@ -246,6 +251,9 @@ class _CommandScreenState extends State<CommandScreen> {
               if (!widget.conflictResolved) ...[
                 _ConflictDecisionCard(
                   analyzing: widget.conflictAnalyzing,
+                  analysis: widget.conflictAnalysis,
+                  errorMessage: widget.conflictAnalysisError,
+                  evidence: demoRoadConflictEvidence,
                   onAnalyze: widget.onAnalyzeConflict,
                   onAcceptOpen: () => widget.onResolveConflict(false),
                   onAcceptFlooded: () => widget.onResolveConflict(true),
@@ -1033,12 +1041,18 @@ class _PrioritySelector extends StatelessWidget {
 class _ConflictDecisionCard extends StatelessWidget {
   const _ConflictDecisionCard({
     required this.analyzing,
+    required this.analysis,
+    required this.errorMessage,
+    required this.evidence,
     required this.onAnalyze,
     required this.onAcceptOpen,
     required this.onAcceptFlooded,
   });
 
   final bool analyzing;
+  final AiConflictAnalysisResult? analysis;
+  final String? errorMessage;
+  final List<ConflictEvidence> evidence;
   final VoidCallback onAnalyze;
   final VoidCallback onAcceptOpen;
   final VoidCallback onAcceptFlooded;
@@ -1086,7 +1100,7 @@ class _ConflictDecisionCard extends StatelessWidget {
             ),
             const SizedBox(height: 7),
             const Text(
-              '同一地点收到两条截然相反的情报，请人工介入研判。',
+              '同一地点收到多条相互矛盾的图文资料。AI 将读取全部证据、构建完整上下文并评估真实性与可信度。',
               style: TextStyle(
                 color: MosaicColors.secondaryText,
                 fontSize: 14,
@@ -1094,58 +1108,52 @@ class _ConflictDecisionCard extends StatelessWidget {
                 height: 1.55,
               ),
             ),
-            const SizedBox(height: 16),
-            if (!analyzing)
-              SizedBox(
-                width: double.infinity,
-                child: OutlinedButton(
-                  key: const Key('analyze-conflict'),
-                  onPressed: onAnalyze,
-                  style: OutlinedButton.styleFrom(
-                    minimumSize: const Size.fromHeight(52),
-                    foregroundColor: MosaicColors.red,
-                    backgroundColor: withOpacityValue(MosaicColors.red, 0.06),
-                    side: BorderSide(
-                      color: withOpacityValue(MosaicColors.red, 0.16),
-                    ),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(16),
-                    ),
-                    textStyle: const TextStyle(
-                      fontSize: 14,
-                      fontWeight: FontWeight.w800,
-                      letterSpacing: 0.7,
-                    ),
-                  ),
-                  child: const Text('AI 分析冲突'),
+            const SizedBox(height: 14),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                _EvidenceCounter(
+                  icon: Icons.image_rounded,
+                  label:
+                      '${evidence.where((item) => item.modality == EvidenceModality.image).length} 张图片',
                 ),
-              )
+                _EvidenceCounter(
+                  icon: Icons.subject_rounded,
+                  label:
+                      '${evidence.where((item) => item.modality == EvidenceModality.text).length} 条文字',
+                ),
+                const _EvidenceCounter(
+                  icon: Icons.location_on_rounded,
+                  label: '同一地点',
+                ),
+              ],
+            ),
+            const SizedBox(height: 16),
+            if (analyzing)
+              const _ConflictAnalyzingState()
+            else if (errorMessage != null)
+              _ConflictAnalysisError(message: errorMessage!, onRetry: onAnalyze)
+            else if (analysis == null)
+              _ConflictAnalyzeButton(onPressed: onAnalyze)
             else ...[
               const Divider(color: MosaicColors.mapLine),
-              const SizedBox(height: 9),
-              const Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Icon(
-                    Icons.auto_awesome_rounded,
-                    size: 19,
-                    color: MosaicColors.purple,
-                  ),
-                  SizedBox(width: 8),
-                  Expanded(
-                    child: Text(
-                      'AI 推断：水位上涨中，建议采信最新上报',
-                      style: TextStyle(
-                        color: MosaicColors.lead,
-                        fontSize: 14,
-                        fontWeight: FontWeight.w800,
-                        height: 1.4,
-                      ),
-                    ),
-                  ),
-                ],
+              const SizedBox(height: 12),
+              _ConflictAnalysisResultView(
+                result: analysis!,
+                evidence: evidence,
+                onRegenerate: onAnalyze,
               ),
               const SizedBox(height: 16),
+              const Text(
+                '人工确认最终结论',
+                style: TextStyle(
+                  color: MosaicColors.lead,
+                  fontSize: 13,
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+              const SizedBox(height: 10),
               LayoutBuilder(
                 builder: (context, constraints) {
                   final first = _AnalysisOption(
@@ -1157,8 +1165,8 @@ class _ConflictDecisionCard extends StatelessWidget {
                   final second = _AnalysisOption(
                     key: const Key('latest-analysis-option'),
                     meta: '14:28 · 司机',
-                    value: '路面已被淹',
-                    buttonLabel: '采信此条',
+                    value: '路面已被淹，机动车不可通行',
+                    buttonLabel: '采信 AI 推荐结论',
                     highlighted: true,
                     onPressed: onAcceptFlooded,
                   );
@@ -1179,6 +1187,608 @@ class _ConflictDecisionCard extends StatelessWidget {
               ),
             ],
           ],
+        ),
+      ),
+    );
+  }
+}
+
+class _EvidenceCounter extends StatelessWidget {
+  const _EvidenceCounter({required this.icon, required this.label});
+
+  final IconData icon;
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+      decoration: BoxDecoration(
+        color: withOpacityValue(MosaicColors.blue, 0.06),
+        borderRadius: BorderRadius.circular(999),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 15, color: MosaicColors.blue),
+          const SizedBox(width: 5),
+          Text(
+            label,
+            style: const TextStyle(
+              color: MosaicColors.lead,
+              fontSize: 11,
+              fontWeight: FontWeight.w800,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _ConflictAnalyzeButton extends StatelessWidget {
+  const _ConflictAnalyzeButton({required this.onPressed});
+
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      width: double.infinity,
+      child: OutlinedButton.icon(
+        key: const Key('analyze-conflict'),
+        onPressed: onPressed,
+        style: OutlinedButton.styleFrom(
+          minimumSize: const Size.fromHeight(52),
+          foregroundColor: MosaicColors.red,
+          backgroundColor: withOpacityValue(MosaicColors.red, 0.06),
+          side: BorderSide(color: withOpacityValue(MosaicColors.red, 0.16)),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(16),
+          ),
+          textStyle: const TextStyle(
+            fontSize: 14,
+            fontWeight: FontWeight.w800,
+            letterSpacing: 0.4,
+          ),
+        ),
+        icon: const Icon(Icons.auto_awesome_rounded, size: 19),
+        label: const Text('读取图文并调用 AI API'),
+      ),
+    );
+  }
+}
+
+class _ConflictAnalyzingState extends StatelessWidget {
+  const _ConflictAnalyzingState();
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      key: const Key('conflict-analysis-loading'),
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: withOpacityValue(MosaicColors.purple, 0.055),
+        borderRadius: BorderRadius.circular(16),
+      ),
+      child: const Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              SizedBox(
+                width: 18,
+                height: 18,
+                child: CircularProgressIndicator(
+                  strokeWidth: 2.4,
+                  color: MosaicColors.purple,
+                ),
+              ),
+              SizedBox(width: 9),
+              Expanded(
+                child: Text(
+                  '正在构建多模态冲突上下文…',
+                  style: TextStyle(
+                    color: MosaicColors.lead,
+                    fontSize: 13,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          SizedBox(height: 14),
+          _AnalysisPipelineStep(label: '读取 2 张现场图片和 3 条文字', done: true),
+          _AnalysisPipelineStep(label: '提取 OCR、视觉特征和文件指纹', done: true),
+          _AnalysisPipelineStep(label: '按地点与观察时间打包完整上下文', done: true),
+          _AnalysisPipelineStep(label: '调用 AI API 交叉验证真实性与可信度'),
+        ],
+      ),
+    );
+  }
+}
+
+class _AnalysisPipelineStep extends StatelessWidget {
+  const _AnalysisPipelineStep({required this.label, this.done = false});
+
+  final String label;
+  final bool done;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(
+            done ? Icons.check_circle_rounded : Icons.pending_rounded,
+            size: 16,
+            color: done ? MosaicColors.green : MosaicColors.purple,
+          ),
+          const SizedBox(width: 7),
+          Expanded(
+            child: Text(
+              label,
+              style: const TextStyle(
+                color: MosaicColors.secondaryText,
+                fontSize: 11,
+                fontWeight: FontWeight.w700,
+                height: 1.35,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _ConflictAnalysisError extends StatelessWidget {
+  const _ConflictAnalysisError({required this.message, required this.onRetry});
+
+  final String message;
+  final VoidCallback onRetry;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: withOpacityValue(MosaicColors.red, 0.055),
+        borderRadius: BorderRadius.circular(16),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            message,
+            style: const TextStyle(
+              color: MosaicColors.red,
+              fontSize: 12,
+              fontWeight: FontWeight.w700,
+              height: 1.45,
+            ),
+          ),
+          const SizedBox(height: 10),
+          TextButton.icon(
+            key: const Key('retry-conflict-analysis'),
+            onPressed: onRetry,
+            icon: const Icon(Icons.refresh_rounded),
+            label: const Text('重新调用 API'),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _ConflictAnalysisResultView extends StatelessWidget {
+  const _ConflictAnalysisResultView({
+    required this.result,
+    required this.evidence,
+    required this.onRegenerate,
+  });
+
+  final AiConflictAnalysisResult result;
+  final List<ConflictEvidence> evidence;
+  final VoidCallback onRegenerate;
+
+  ConflictEvidence? _evidenceById(String id) {
+    for (final item in evidence) {
+      if (item.id == id) {
+        return item;
+      }
+    }
+    return null;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final rankedAssessments = List<EvidenceCredibilityAssessment>.of(
+      result.assessments,
+    )..sort((a, b) => b.credibilityScore.compareTo(a.credibilityScore));
+    return Column(
+      key: const Key('conflict-api-result'),
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            const Icon(
+              Icons.auto_awesome_rounded,
+              size: 20,
+              color: MosaicColors.purple,
+            ),
+            const SizedBox(width: 8),
+            const Expanded(
+              child: Text(
+                'AI 多模态冲突研判',
+                style: TextStyle(
+                  color: MosaicColors.lead,
+                  fontSize: 15,
+                  fontWeight: FontWeight.w900,
+                ),
+              ),
+            ),
+            SectionLabel(
+              result.usedRemoteApi ? 'API 已返回' : '本地演示',
+              foreground: result.usedRemoteApi
+                  ? MosaicColors.green
+                  : MosaicColors.purple,
+            ),
+          ],
+        ),
+        const SizedBox(height: 12),
+        Container(
+          padding: const EdgeInsets.all(12),
+          decoration: BoxDecoration(
+            color: withOpacityValue(MosaicColors.purple, 0.055),
+            borderRadius: BorderRadius.circular(14),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                '已读取 ${result.imageCount} 张图片 · ${result.textCount} 条文字',
+                style: const TextStyle(
+                  color: MosaicColors.purple,
+                  fontSize: 12,
+                  fontWeight: FontWeight.w900,
+                ),
+              ),
+              const SizedBox(height: 6),
+              Text(
+                result.contextDigest,
+                style: const TextStyle(
+                  color: MosaicColors.secondaryText,
+                  fontSize: 11,
+                  fontWeight: FontWeight.w600,
+                  height: 1.45,
+                ),
+              ),
+              const SizedBox(height: 7),
+              Text(
+                '${result.engineLabel} · ${result.modelVersion} · 数据截至 ${result.dataAsOf}',
+                style: const TextStyle(
+                  color: MosaicColors.mutedText,
+                  fontSize: 9,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 14),
+        Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    'AI 建议结论',
+                    style: TextStyle(
+                      color: MosaicColors.mutedText,
+                      fontSize: 10,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                  const SizedBox(height: 5),
+                  Text(
+                    result.conclusion,
+                    style: const TextStyle(
+                      color: MosaicColors.red,
+                      fontSize: 16,
+                      fontWeight: FontWeight.w900,
+                      height: 1.35,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(width: 12),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+              decoration: BoxDecoration(
+                color: withOpacityValue(MosaicColors.green, 0.09),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Column(
+                children: [
+                  Text(
+                    '${result.confidence}%',
+                    style: const TextStyle(
+                      color: MosaicColors.green,
+                      fontSize: 17,
+                      fontWeight: FontWeight.w900,
+                    ),
+                  ),
+                  const Text(
+                    '综合可信度',
+                    style: TextStyle(
+                      color: MosaicColors.green,
+                      fontSize: 8,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 9),
+        const Text(
+          'AI 推断：水位上涨中，建议采信最新上报',
+          style: TextStyle(
+            color: MosaicColors.lead,
+            fontSize: 13,
+            fontWeight: FontWeight.w800,
+          ),
+        ),
+        const SizedBox(height: 5),
+        Text(
+          result.reasoningSummary,
+          style: const TextStyle(
+            color: MosaicColors.secondaryText,
+            fontSize: 12,
+            fontWeight: FontWeight.w600,
+            height: 1.5,
+          ),
+        ),
+        const SizedBox(height: 18),
+        const Text(
+          '证据真实性与可信度排序',
+          style: TextStyle(
+            color: MosaicColors.lead,
+            fontSize: 13,
+            fontWeight: FontWeight.w900,
+          ),
+        ),
+        const SizedBox(height: 10),
+        ...rankedAssessments.map(
+          (assessment) => Padding(
+            padding: const EdgeInsets.only(bottom: 9),
+            child: _EvidenceAssessmentTile(
+              assessment: assessment,
+              evidence: _evidenceById(assessment.evidenceId),
+              recommended:
+                  assessment.evidenceId == result.recommendedEvidenceId,
+            ),
+          ),
+        ),
+        if (result.warnings.isNotEmpty) ...[
+          const SizedBox(height: 4),
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: withOpacityValue(MosaicColors.amber, 0.08),
+              borderRadius: BorderRadius.circular(14),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  '风险提示',
+                  style: TextStyle(
+                    color: MosaicColors.lead,
+                    fontSize: 11,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+                const SizedBox(height: 6),
+                ...result.warnings.map(
+                  (warning) => Padding(
+                    padding: const EdgeInsets.only(bottom: 4),
+                    child: Text(
+                      '• $warning',
+                      style: const TextStyle(
+                        color: MosaicColors.secondaryText,
+                        fontSize: 10,
+                        fontWeight: FontWeight.w600,
+                        height: 1.4,
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+        const SizedBox(height: 8),
+        Align(
+          alignment: Alignment.centerRight,
+          child: TextButton.icon(
+            key: const Key('rerun-conflict-analysis'),
+            onPressed: onRegenerate,
+            icon: const Icon(Icons.refresh_rounded, size: 17),
+            label: const Text('用最新资料重新分析'),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _EvidenceAssessmentTile extends StatelessWidget {
+  const _EvidenceAssessmentTile({
+    required this.assessment,
+    required this.evidence,
+    required this.recommended,
+  });
+
+  final EvidenceCredibilityAssessment assessment;
+  final ConflictEvidence? evidence;
+  final bool recommended;
+
+  @override
+  Widget build(BuildContext context) {
+    final item = evidence;
+    final isImage = item?.modality == EvidenceModality.image;
+    final accent = recommended ? MosaicColors.green : MosaicColors.blue;
+    return Container(
+      key: Key('evidence-assessment-${assessment.evidenceId}'),
+      padding: const EdgeInsets.all(11),
+      decoration: BoxDecoration(
+        color: recommended
+            ? withOpacityValue(MosaicColors.green, 0.045)
+            : MosaicColors.background,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(
+          color: recommended
+              ? withOpacityValue(MosaicColors.green, 0.25)
+              : withOpacityValue(MosaicColors.lead, 0.08),
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Container(
+                width: 42,
+                height: 42,
+                decoration: BoxDecoration(
+                  color: withOpacityValue(accent, 0.1),
+                  borderRadius: BorderRadius.circular(11),
+                ),
+                child: Icon(
+                  isImage ? Icons.image_rounded : Icons.subject_rounded,
+                  color: accent,
+                  size: 21,
+                ),
+              ),
+              const SizedBox(width: 9),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            item?.source ?? assessment.evidenceId,
+                            style: const TextStyle(
+                              color: MosaicColors.lead,
+                              fontSize: 12,
+                              fontWeight: FontWeight.w900,
+                            ),
+                          ),
+                        ),
+                        if (recommended)
+                          const SectionLabel(
+                            '最高可信',
+                            foreground: MosaicColors.green,
+                          ),
+                      ],
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      '${item?.observedAt ?? '--:--'} · ${item?.modality.label ?? '资料'}${item?.fileName == null ? '' : ' · ${item!.fileName}'}',
+                      style: const TextStyle(
+                        color: MosaicColors.mutedText,
+                        fontSize: 9,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 9),
+          Wrap(
+            spacing: 7,
+            runSpacing: 7,
+            children: [
+              _ScoreChip(
+                label: '真实性 ${assessment.authenticityScore}%',
+                color: MosaicColors.blue,
+              ),
+              _ScoreChip(
+                label: '可信度 ${assessment.credibilityScore}%',
+                color: accent,
+              ),
+              _ScoreChip(
+                label: assessment.verdict.label,
+                color: assessment.verdict == EvidenceVerdict.contradicted
+                    ? MosaicColors.red
+                    : MosaicColors.purple,
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Text(
+            assessment.reason,
+            style: const TextStyle(
+              color: MosaicColors.secondaryText,
+              fontSize: 10,
+              fontWeight: FontWeight.w600,
+              height: 1.45,
+            ),
+          ),
+          if (assessment.extractedFacts.isNotEmpty) ...[
+            const SizedBox(height: 6),
+            Text(
+              '提取事实：${assessment.extractedFacts.join(' · ')}',
+              maxLines: 3,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(
+                color: MosaicColors.mutedText,
+                fontSize: 9,
+                fontWeight: FontWeight.w600,
+                height: 1.35,
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+class _ScoreChip extends StatelessWidget {
+  const _ScoreChip({required this.label, required this.color});
+
+  final String label;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
+      decoration: BoxDecoration(
+        color: withOpacityValue(color, 0.08),
+        borderRadius: BorderRadius.circular(999),
+      ),
+      child: Text(
+        label,
+        style: TextStyle(
+          color: color,
+          fontSize: 9,
+          fontWeight: FontWeight.w900,
         ),
       ),
     );

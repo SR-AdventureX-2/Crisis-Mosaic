@@ -1,4 +1,6 @@
 import '../models/citizen_report.dart';
+import '../models/conflict_analysis.dart';
+import 'ai_api_transport.dart';
 
 class AiReportSuggestion {
   const AiReportSuggestion({
@@ -37,6 +39,14 @@ abstract interface class AiAnalysisService {
     required List<CitizenReport> reports,
     required bool hasConflict,
     required bool hasBlindSpot,
+  });
+
+  Future<AiConflictAnalysisResult> analyzeConflict({
+    required String conflictId,
+    required int conflictRevision,
+    required String location,
+    required String topic,
+    required List<ConflictEvidence> evidence,
   });
 }
 
@@ -118,6 +128,83 @@ class LocalAiAnalysisService implements AiAnalysisService {
     );
   }
 
+  @override
+  Future<AiConflictAnalysisResult> analyzeConflict({
+    required String conflictId,
+    required int conflictRevision,
+    required String location,
+    required String topic,
+    required List<ConflictEvidence> evidence,
+  }) async {
+    await Future<void>.delayed(const Duration(milliseconds: 1350));
+    final imageCount = evidence
+        .where((item) => item.modality == EvidenceModality.image)
+        .length;
+    final textCount = evidence.length - imageCount;
+    return AiConflictAnalysisResult.fromJson({
+      'analysis_id': 'local-$conflictId-r$conflictRevision',
+      'suggested_conclusion': '沿江路东段已被积水覆盖，机动车当前不可通行',
+      'reasoning_summary':
+          '14:24 后的两条文字上报与两张现场图片相互印证；14:00 的“可通行”描述本身未发现伪造迹象，但已被更新证据反驳，属于过时信息。',
+      'confidence': 0.86,
+      'recommended_evidence_id': 'text-driver-1428',
+      'context_summary': {
+        'image_count': imageCount,
+        'text_count': textCount,
+        'digest': '已按地点、观察时间、来源、OCR、图像特征和文件指纹打包完整上下文。',
+      },
+      'evidence_assessments': [
+        {
+          'evidence_id': 'text-resident-1400',
+          'authenticity_score': 0.93,
+          'credibility_score': 0.38,
+          'verdict': 'contradicted',
+          'reason': '来源和表述未见异常，但观察时间最早，已被后续水位变化和图像证据反驳。',
+          'extracted_facts': ['14:00', '曾可通行', '积水较浅'],
+        },
+        {
+          'evidence_id': 'text-community-1424',
+          'authenticity_score': 0.88,
+          'credibility_score': 0.84,
+          'verdict': 'supported',
+          'reason': '水位上涨趋势与 14:26、14:29 两张图片中的道路覆盖情况一致。',
+          'extracted_facts': ['14:24', '水位上涨', '漫过路缘'],
+        },
+        {
+          'evidence_id': 'image-road-1426',
+          'authenticity_score': 0.91,
+          'credibility_score': 0.89,
+          'verdict': 'supported',
+          'reason': '文件指纹完整；OCR 地点与上报位置一致，视觉参照物支持 25～35 厘米积水判断。',
+          'extracted_facts': ['车道连续积水', '沿江路东段', '约 25～35 厘米'],
+        },
+        {
+          'evidence_id': 'text-driver-1428',
+          'authenticity_score': 0.94,
+          'credibility_score': 0.92,
+          'verdict': 'supported',
+          'reason': '时间最新，且与前后两张图片及社区联络员文字上报形成交叉验证。',
+          'extracted_facts': ['14:28', '车辆无法通行', '路面被淹'],
+        },
+        {
+          'evidence_id': 'image-turnaround-1429',
+          'authenticity_score': 0.96,
+          'credibility_score': 0.94,
+          'verdict': 'supported',
+          'reason': '文件指纹和时间连续；图像显示全部车道被积水覆盖且车辆正在掉头。',
+          'extracted_facts': ['14:29', '车辆掉头', '无可用机动车道'],
+        },
+      ],
+      'warnings': [
+        'AI 只提供辅助判断，最终结论仍需指挥人员确认。',
+        '真实性高不等于信息仍然有效；14:00 的上报更可能是已经过时，而非恶意虚假。',
+      ],
+      'engine_label': '本地多模态演示',
+      'model_version': 'multimodal-conflict-demo-v1',
+      'data_as_of': '14:29',
+    }, usedRemoteApi: false);
+  }
+
   String _actionSuggestion(ReportCategory category, bool urgent) {
     if (urgent) {
       return '立即核验位置并通知附近救援力量。';
@@ -133,4 +220,115 @@ class LocalAiAnalysisService implements AiAnalysisService {
   }
 }
 
-const aiAnalysisService = LocalAiAnalysisService();
+class ConfigurableAiAnalysisService implements AiAnalysisService {
+  const ConfigurableAiAnalysisService({
+    required this.localService,
+    this.apiBaseUrl = '',
+    this.apiToken = '',
+  });
+
+  final LocalAiAnalysisService localService;
+  final String apiBaseUrl;
+  final String apiToken;
+
+  bool get usesRemoteConflictApi => apiBaseUrl.trim().isNotEmpty;
+
+  @override
+  Future<AiReportSuggestion> refineReport({
+    required ReportCategory category,
+    required String content,
+    required String location,
+  }) {
+    return localService.refineReport(
+      category: category,
+      content: content,
+      location: location,
+    );
+  }
+
+  @override
+  Future<AiCommandBrief> buildCommandBrief({
+    required List<CitizenReport> reports,
+    required bool hasConflict,
+    required bool hasBlindSpot,
+  }) {
+    return localService.buildCommandBrief(
+      reports: reports,
+      hasConflict: hasConflict,
+      hasBlindSpot: hasBlindSpot,
+    );
+  }
+
+  @override
+  Future<AiConflictAnalysisResult> analyzeConflict({
+    required String conflictId,
+    required int conflictRevision,
+    required String location,
+    required String topic,
+    required List<ConflictEvidence> evidence,
+  }) async {
+    if (!usesRemoteConflictApi) {
+      return localService.analyzeConflict(
+        conflictId: conflictId,
+        conflictRevision: conflictRevision,
+        location: location,
+        topic: topic,
+        evidence: evidence,
+      );
+    }
+
+    final normalizedBaseUrl = apiBaseUrl.endsWith('/')
+        ? apiBaseUrl.substring(0, apiBaseUrl.length - 1)
+        : apiBaseUrl;
+    final uri = Uri.parse(
+      '$normalizedBaseUrl/api/v1/conflicts/$conflictId/ai-analysis',
+    );
+    final payload = <String, Object?>{
+      'incident_id': 'demo-hangzhou-flood',
+      'conflict_revision': conflictRevision,
+      'context': {
+        'location': location,
+        'topic': topic,
+        'evidence': evidence.map((item) => item.toJson()).toList(),
+        'processing': {
+          'read_original_text': true,
+          'read_images': true,
+          'extract_ocr': true,
+          'verify_file_hash': true,
+          'cross_validate_timeline': true,
+        },
+      },
+    };
+
+    try {
+      final response = await postJsonToAiApi(
+        uri,
+        payload,
+        bearerToken: apiToken.isEmpty ? null : apiToken,
+      );
+      final responseData = response['data'];
+      final result = responseData is Map
+          ? responseData.cast<String, dynamic>()
+          : response;
+      return AiConflictAnalysisResult.fromJson(result, usedRemoteApi: true);
+    } on Object catch (error) {
+      throw AiAnalysisException('多模态 AI API 调用失败，请检查后端连接后重试。', cause: error);
+    }
+  }
+}
+
+class AiAnalysisException implements Exception {
+  const AiAnalysisException(this.message, {this.cause});
+
+  final String message;
+  final Object? cause;
+
+  @override
+  String toString() => message;
+}
+
+const aiAnalysisService = ConfigurableAiAnalysisService(
+  localService: LocalAiAnalysisService(),
+  apiBaseUrl: String.fromEnvironment('CRISIS_MOSAIC_API_BASE_URL'),
+  apiToken: String.fromEnvironment('CRISIS_MOSAIC_API_TOKEN'),
+);
