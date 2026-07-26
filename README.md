@@ -1,257 +1,209 @@
-# Crisis Mosaic Backend
+<p align="center">
+  <img src="assets/images/app_logo.png" alt="Crisis Mosaic" width="112" />
+</p>
 
-Crisis Mosaic 的 FastAPI 单机功能型 P0 后端。它实现匿名居民上报、实名联络密文快照、
-事件地图、图片/视频媒体意图、定向问答、冲突与事实版本链、AI 辅助分析、审计、
-WebSocket 实时同步和指挥端 Push Outbox。
+<h1 align="center">Crisis Mosaic</h1>
 
-本实现使用 SQLite、单个 Uvicorn worker 和本地文件存储，适合功能联调、比赛演示和
-单机部署。它不宣称满足 `backend.md` 中的生产容量、高可用或灾备指标。
+<p align="center">
+  将碎片化灾情转化为可定位、可比较、可复核的现场态势
+</p>
 
-## 主要能力
+<p align="center">
+  <strong>AdventureX Hackathon Project</strong>
+</p>
 
-- 本地账号与匿名设备 JWT 会话，Access Token 60 分钟，Refresh Token 单次轮换。
-- 六类居民上报、幂等创建、乐观锁更新、完整版本历史和人工优先级。
-- WGS84/GCJ-02 一次性标准化、角色过滤地图、居民侧他人上报约 100m 模糊化、
-  bbox 面积限制和 500 点安全上限。
-- 上报人姓名、手机号、紧急联系人和救援备注字段级加密；报告列表及居民详情只返回脱敏
-  摘要。已鉴权且有事件访问权的指挥账号可在单条报告详情中读取明文并留下无 PII 审计；
-  独立 reveal API 仍使用 mock MFA 和审计。
-- 旧本地图片三步上传继续保留；新媒体接口支持 Kodo Mock，以及服务端为真实七牛 Kodo
-  签发标准短期直传 Token、对象 Key、表单/可恢复上传会话、分片检查点、续签和完成校验。
-- 本地图片链路仍执行 SHA-256、真实 MIME、Pillow 像素限制、EXIF 净化、
-  缩略图、感知哈希和重复来源聚类。
-- 盲区、定向问题、回答历史和结构化冲突自动检测；定向回答不会重复生成上报，并可绑定
-  已完成处理的图片/视频附件。上报创建、读取和更新响应同样返回已绑定附件明细。
-- 多证据人工冲突决策、稳定事实头表和追加式事实版本链。
-- OpenAI-compatible AI：同步上报整理，异步冲突研判和态势简报。
-- SQLite 持久任务、租约重试、Transactional Outbox、通知 Outbox、WebSocket 补发
-  和权限过滤。
-- Prometheus HTTP 延迟、幂等、实时连接、任务、AI、冲突、盲区、地图和事实指标。
-- OpenAPI 3.1 与离线 Swagger UI；根路径自动跳转到 `/docs`。
+## 项目背景
 
-## 快速开始（PowerShell）
+灾害发生后，现场信息通常来自不同居民、不同时间和不同观察角度。真正困难的并不是“有没有人上报”，而是如何在大量碎片中识别关键事实：哪些信息已经过时，哪些说法互相冲突，哪些区域仍然缺少可靠观察。
 
-需要 Python 3.12。请在仓库根目录执行：
+Crisis Mosaic 是一套面向灾害现场的信息协同原型。它将每条居民上报视为一块“信息碎片”，通过地图、时间线、冲突状态和 AI 辅助研判，将碎片拼成能够被指挥人员理解和复核的态势图。
 
-```powershell
-py -3.12 -m venv .venv
-.\.venv\Scripts\Activate.ps1
-python -m pip install -e ".[dev]"
-```
+本仓库同时包含 Flutter 前端与 FastAPI 后端。本 README 聚焦 AdventureX 现场演示使用的 Flutter 前端。
 
-仓库已提供脱敏配置模板。首次配置时复制模板，并替换其中的密钥和密码：
+## 产品理念
 
-```powershell
-Copy-Item .env.example .env
-python -c "import secrets; print(secrets.token_urlsafe(48))"
-```
+- 居民端与指挥端同等重要。
+- 居民需要以尽可能少的步骤完成上报。
+- 指挥人员需要快速看见冲突、盲区和高风险信息。
+- AI 负责整理与提供依据，不替代人类做最终决定。
+- 不把“较旧的信息”简单判定为虚假信息。
 
-仓库只提供 `.env.example`，不会预先生成 `.env`。复制模板后必须自行生成并填写本地随机
-密钥；模板中的 `AI_API_KEY` 保持为空，填写兼容服务的 Key 后才会启用真实 AI。未配置时
-核心业务正常运行，AI 接口返回明确的 `503 AI_SERVICE_UNAVAILABLE`。
+## 前端体验
 
-初始化数据库并写入幂等演示数据：
-
-```powershell
-alembic upgrade head
-crisis-mosaic seed
-```
-
-启动单进程服务：
-
-```powershell
-crisis-mosaic serve
-```
-
-也可直接运行：
-
-```powershell
-uvicorn crisis_mosaic.main:app --host 127.0.0.1 --port 8000 --workers 1
-```
-
-根目录兼容入口会自动解析 `src/`，即使尚未执行 editable install 也可以启动：
-
-```powershell
-python app.py
-```
-
-打开 [http://127.0.0.1:8000/docs](http://127.0.0.1:8000/docs)。Swagger UI 5 的
-JavaScript、CSS 和图标均由仓库自托管，不依赖 CDN。
-
-> **重要：** SQLite 写事务由进程内锁串行化，数据目录还持有操作系统级进程锁，因此
-> 只能启动一个 worker。第二个进程会拒绝启动；不要使用 `--workers 2`、多实例或自动
-> 横向扩容。
-
-## 演示数据与登录
-
-`crisis-mosaic seed` 可重复执行，且不会在普通启动时自动写数据。它创建：
-
-- 杭州洪灾事件，别名 `demo-hangzhou-flood`。
-- 大关桥盲区和阈值为 1 的演示定向问题。
-- 沿江路冲突，别名 `along-river-road-passability`。
-- `admin` 与 `operator` 本地账号及事件成员关系。
-
-账号密码取自 `.env` 中的 `BOOTSTRAP_ADMIN_PASSWORD` 和
-`BOOTSTRAP_OPERATOR_PASSWORD`。在 Swagger 中调用 `POST /api/v1/auth/token`
-（表单格式）获取令牌，然后点击 **Authorize** 输入 `Bearer` Token。
-
-匿名居民先调用 `POST /api/v1/resident-device-sessions`（兼容旧
-`/anonymous-sessions`）。`installation_id` 应由客户端生成，
-至少包含 128 位随机熵，例如 22 个以上 URL-safe 随机字符。新匿名会话和匿名 Token
-轮换仅允许绑定 `active` 事件，不会跨事件续签到已关闭或尚未启用的事件。
-
-## 常用 API
-
-所有 REST 路径以 `/api/v1` 开头，成功响应统一为 `data/meta`，错误统一为
-`error.code/message/request_id/details`。
-
-| 领域 | 主要端点 |
+| 居民视角 | 指挥视角 |
 | --- | --- |
-| 认证 | `/resident-device-sessions`、`/anonymous-sessions`、`/auth/token`、`/auth/me` |
-| 上报 | `/incidents/{id}/reports`、`/reports/{id}`、`/reporter-contact/reveal` |
-| 媒体 | `/uploads/image-intents`、`/uploads/media-intents`、`/resumable-sessions` |
-| 地图 | `/incidents/{id}/map-view` |
-| 问答 | `/blind-spots`、`/directed-questions`、`/my-answer`、`/fragments` |
-| 冲突事实 | `/conflicts`、`/decision`、`/fact-records` |
-| AI | `/ai/report-refinements`、`/conflicts/{id}/ai-analysis`、`/ai/analyses/{id}` |
-| 通知 | `/me/push-devices`、`/me/notification-preferences/{id}`、`/notifications/{id}/receipts` |
-| 运维 | `/health/live`、`/health/ready`、`/metrics` |
+| 六类快捷现场上报 | 地图与信息碎片列表 |
+| 高德地图定位与隐私授权 | 冲突、盲区和状态指标 |
+| 紧急标记与最近上报修改 | 冲突时间线与证据可信度 |
+| 回答指挥端定向问题 | AI 态势简报与冲突分析 |
+| 提交结果即时反馈 | 采信建议后更新当前态势 |
 
-创建业务资源时提交 `Idempotency-Key`。访问事件内资源时同时提交：
+### 居民端
+
+- 支持救援、医疗、饮水、食物、避难和道路六类上报。
+- 在移动端取得用户同意后初始化高德地图和前台定位。
+- 可以标记紧急情况，并在提交前使用 AI 整理表达和识别风险词。
+- 可以修改最近一次普通上报。
+- 可以回答“大关桥是否可通行”等定向问题，用现场观察填补信息盲区。
+- 居民提交的数据会立即反映到当前演示会话的指挥视角。
+
+### 指挥端
+
+- 展示信息碎片、位置、更新时间、来源类型和综合置信度。
+- 将逻辑冲突和严重盲区作为独立状态展示，而不是埋在普通列表中。
+- 通过冲突时间线比较同一地点的多条相反信息。
+- 生成 AI 态势简报，汇总冲突、盲区和居民紧急上报。
+- 对演示冲突执行 AI 辅助分析，展示推荐结论、证据评分和限制说明。
+- 指挥人员确认结论后，界面更新冲突状态与道路事实。
+
+## AI 冲突研判
+
+演示中的核心冲突是“沿江路是否仍可通行”。系统会对不同时刻的文字与图片证据进行比较，并展示：
+
+- 建议结论与综合置信度。
+- 每份证据的真实性、当前可信度与支持关系。
+- 信息是否可能已经过时。
+- 当前结论的依据和风险提示。
+
+AI 只提供辅助判断。最终结论仍需要指挥人员在界面中主动确认。
+
+## 3 分钟演示流程
+
+1. 从指挥视角查看地图、态势指标和“沿江路通行状态冲突”。
+2. 点击冲突分析，等待 AI 返回证据排序和建议结论。
+3. 采信最新观察，展示冲突消失以及道路事实更新。
+4. 切换到居民上报，打开“大关桥”定向问题并提交现场观察。
+5. 返回指挥视角，展示盲区已由居民确认并被填补。
+6. 再提交一条紧急救援上报，演示居民信息即时进入当前指挥视角。
+
+## 运行模式
+
+### 独立演示模式
+
+不配置 AI API 地址时，前端使用内置演示数据和本地 AI 结果，可以离线完成 AdventureX 的主要交互流程。居民新提交的数据仅保存在当前应用会话中，重启应用后会清空。
+
+### 可选 AI API 模式
+
+配置 `CRISIS_MOSAIC_API_BASE_URL` 后，冲突分析会调用：
 
 ```text
-Authorization: Bearer <access-token>
-X-Incident-Id: <incident-uuid>
+POST /api/v1/conflicts/{conflict_id}/ai-analysis
 ```
 
-报告列表中的 `reporter` 对所有角色均为脱敏数据。已鉴权且具有对应事件访问权的
-`operator`/`admin` 调用 `GET /api/v1/reports/{report_id}` 时，详情中的 `reporter` 才返回
-明文联系人和附加信息；居民详情仍为脱敏数据。该指挥详情响应使用
-`Cache-Control: no-store`，明文读取会写入不含 PII 的审计记录，也不会产生包含 PII 的
-Outbox 事件。
+仓库根目录包含 FastAPI 后端。该兼容接口只用于开发或演示环境，需要后端启用 `ENABLE_LEGACY_DEMO_AI=true`；生产环境不应启用。
 
-上报创建会在同一数据库事务内保存业务结果和幂等响应。其他创建/PUT 接口由通用持久幂等
-层保护：同一键和请求体会回放首次成功响应；键冲突返回 409。若进程恰好在业务提交后、
-响应快照写入前崩溃，该键会返回 `IDEMPOTENCY_IN_PROGRESS` 直至 24 小时窗口到期，以
-避免在结果未知时自动重复写入；此时应由操作员查询资源状态，不应更换键盲目重试。
+## 技术架构
 
-图片采用三步协议：创建上传意图、向返回的 `upload_url` 发送原始二进制 `PUT`、调用
-`complete`。完成请求会校验哈希并进入处理队列进行 MIME、像素与 EXIF 净化。
-
-新版媒体接口使用 `/uploads/media-intents`。默认 `qiniu_kodo_mock` 返回 Mock Token；设置
-`MEDIA_STORAGE_PROVIDER=qiniu_kodo` 后，服务端按七牛上传策略生成包含 bucket/object key
-作用域、截止时间和防覆盖约束的标准短期 Token。AK 仅作为标准 Token 的组成部分返回，
-SK 不下发给客户端。客户端声明
-`client_capabilities.resumable_upload=false` 时，图片和视频均返回 `KODO_FORM`，以
-`token`、`key` 和 `file` multipart 字段直传；为 `true` 时返回
-`KODO_RESUMABLE_V2` 和可恢复会话入口。文件字节不经过业务后端。
-
-媒体完成处理后才能绑定业务资源。上报创建和 PATCH 使用 `attachment_ids`；PATCH 省略该
-字段时保留现有绑定，显式列表替换，空列表清除。定向回答 PUT 也接受 `attachment_ids`，
-该列表代表本次回答的完整附件集合。附件必须属于同一事件和当前居民设备、处于 ready/clean
-状态且尚未绑定其他上报或回答。上报响应、回答响应和居民活动问题中的 `my_answer` 均返回
-`attachment_ids` 与 `attachments` 明细。
-
-视频上传默认由 `ENABLE_VIDEO_UPLOAD=false` 关闭。当前真实 Kodo 集成只负责标准 Token
-签发和客户端直传合同；尚未实现服务端 Kodo Stat 校验、七牛回调接收端，以及真实恶意
-文件扫描、视频转码和验收，完成接口也不会主动向七牛查询对象；媒体访问 URL 仍使用 mock
-签名。因此启用视频或用于生产前仍需完成这些外部集成检查。部署配置见
-[单机部署与运维](docs/deployment.md#媒体与-kodo)。
-
-WebSocket 地址为 `ws://127.0.0.1:8000/api/v1/realtime`。连接后 5 秒内发送：
-
-```json
-{
-  "type": "authenticate",
-  "access_token": "<access-token>",
-  "incident_id": "<incident-uuid>",
-  "last_sequence": 0
-}
+```mermaid
+flowchart LR
+    Resident["居民视角"] --> App["Flutter 状态与交互层"]
+    Commander["指挥视角"] --> App
+    App --> Map["高德地图与定位 SDK"]
+    App --> Demo["本地演示碎片与 AI 结果"]
+    App -. "可选 HTTP 冲突分析" .-> API["FastAPI Backend"]
+    API -. "结构化研判结果" .-> App
 ```
 
-Token 不得放在查询参数。实时事件 Schema 位于
-`/schemas/realtime-event.json`。
+主要技术：
 
-## 数据保留
+- Flutter / Dart
+- Material 3 自定义设计系统
+- 高德地图与定位 Flutter SDK
+- 响应式手机端布局
+- 可切换的本地与远程 AI 分析服务
+- Flutter Widget Test
 
-后台进程在启动后立即执行一次保留期清理，之后按
-`RETENTION_CLEANUP_HOURS`（默认 24 小时）重复执行。默认规则为：
+## 项目结构
 
-- 幂等记录和已过期 Refresh Token 会话在到期后删除。
-- 已发布 Outbox 事件超过 `REALTIME_REPLAY_HOURS` 后删除；未发布事件不会被清理。
-- 审计日志保留 `AUDIT_RETENTION_DAYS`（默认 365 天）。
-- 已关闭事件超过 `BUSINESS_RETENTION_DAYS`（默认 180 天）后，上报、回答、信息碎片、
-  对应历史/冲突证据/AI 快照和地图投影中的居民敏感内容会被不可逆匿名化，本地附件
-  也会删除。
-- 上报联系人默认按 `REPORTER_CONTACT_RETENTION_DAYS_AFTER_INCIDENT` 独立匿名化；
-  事件整体过期时同步清除联系人密文、远端对象 Key、媒体处理状态和策略快照。
-
-附件清理只允许删除解析后位于 `STORAGE_ROOT` 内的普通文件；越界路径或非文件路径会被
-跳过并记录告警。修改保留期前应先确认法规和备份要求。
-
-## 监控指标
-
-`GET /api/v1/metrics` 返回 Prometheus 文本格式，除 Python 进程指标外还包括：
-
-- API 请求量、状态码和延迟直方图，可在 PromQL 中计算 P50/P95/P99 与错误率。
-- 幂等 reservation/replay/conflict、WebSocket 在线连接/重连/补发/慢消费者。
-- Outbox 积压与投递延迟、持久任务状态和重试结果。
-- 上报、AI 状态与平均延迟、冲突解决耗时、盲区首次回答耗时。
-- 精确地图点数/拒绝原因、事实状态与版本数、SQLite 写锁状态。
-
-单机精确点模式不执行聚合，`crisis_mosaic_map_aggregation_ratio` 固定为 0。SQLite 没有
-复制延迟；AI 成本也无法从未返回 usage 的 OpenAI-compatible 服务可靠推导，二者不会
-伪造为生产级指标。
-
-## AI 配置
-
-真实模型使用 OpenAI-compatible `chat/completions` 协议：
-
-```dotenv
-AI_PROVIDER=openai_compatible
-AI_BASE_URL=https://api.openai.com/v1
-AI_API_KEY=
-AI_CHAT_COMPLETIONS_PATH=/chat/completions
-AI_REPORT_MODEL=gpt-4.1-mini
-AI_VISION_MODEL=gpt-4.1-mini
-AI_BRIEF_MODEL=gpt-4.1-mini
+```text
+.
+├── android/                 Android 工程
+├── assets/                  应用图标与中文字体
+├── design/                  产品设计原型
+├── docs/                    后端需求与部署文档
+├── ios/                     iOS 工程
+├── lib/                     Flutter 前端源码
+│   ├── models/              信息碎片、居民上报与 AI 结果模型
+│   ├── screens/             居民端与指挥端界面
+│   ├── services/            AI 服务与平台传输
+│   └── widgets/             地图、卡片和角色导航组件
+├── test/                    Flutter 组件测试
+├── src/                     FastAPI 后端源码
+└── tests/                   后端测试
 ```
 
-测试和离线演示可设置 `AI_PROVIDER=fake`。服务端始终使用 Pydantic Schema 校验 AI
-输出，并校验证据 ID / source_ref 白名单、报告事实保护规则和简报 metrics 引用。AI 不能直接
-写入最终事实；事实变更只能经过人工冲突决策。
+## 快速开始
 
-提示词按任务在代码中固化，并分别记录版本和 `prompt_sha256`。当前版本为：
-`cm-report-refinement-v1.0.0`、`cm-media-evidence-extraction-v1.0.0`、
-`cm-conflict-analysis-v1.0.0`、`cm-command-brief-v1.0.0` 和
-`cm-json-repair-v1.0.0`。
+### 环境要求
 
-`GET /api/v1/ai/analyses/{analysis_id}` 会返回 `prompt_sha256`、`input_tokens`、
-`output_tokens`、`schema_valid` 和 `reference_valid`，用于审计结构化输出和引用校验。
+- Flutter SDK，Dart 3.12 或更高版本
+- Android Studio / Android SDK，或 Xcode
+- 移动端真实地图需要高德 Android 或 iOS Key
 
-调用方传入 `context.evidence` 的旧同步冲突请求仅在 `ENABLE_LEGACY_DEMO_AI=true` 时
-启用。正式请求始终从数据库读取当前完整证据并返回
-`202 + analysis_id + status_url`。
-
-## 验证
+### 安装依赖
 
 ```powershell
-python -m pytest
-python -m ruff check src tests migrations
-python -m mypy src\crisis_mosaic
-alembic check
+flutter pub get
 ```
 
-真实 AI Key、真实 Kodo 上传和真实 Push provider 属于可选集成检查。常规测试使用 fake
-AI、Kodo Mock 和 Push Mock，并使用测试凭证验证真实 Kodo Token 的本地签名合同，不向
-第三方服务发送请求。
+### Web 预览
 
-更多说明：
+Web 端可以演示全部业务界面。由于高德原生地图插件仅支持 Android 和 iOS，Web 地图区域会显示平台兼容提示。
 
-- [实现边界与偏差](docs/implementation-profile.md)
-- [单机部署与运维](docs/deployment.md)
-- [本地贡献指南](CONTRIBUTING.md)
+```powershell
+flutter run -d web-server `
+  --web-hostname 127.0.0.1 `
+  --web-port 52123 `
+  --no-web-resources-cdn
+```
 
-## License
+访问 `http://127.0.0.1:52123/`。
 
-本项目采用 [MIT License](LICENSE)。
+### Android / iOS
+
+高德 Key 不写入仓库，通过 Dart Define 注入：
+
+```powershell
+flutter run -d <device-id> `
+  --dart-define=AMAP_ANDROID_KEY=<android-key>
+```
+
+iOS 使用 `AMAP_IOS_KEY`。Key 的应用包名、Bundle ID 和签名信息必须与当前平台工程一致。
+
+### 连接可选 AI API
+
+```powershell
+flutter run -d <device-id> `
+  --dart-define=AMAP_ANDROID_KEY=<android-key> `
+  --dart-define=CRISIS_MOSAIC_API_BASE_URL=http://127.0.0.1:8000 `
+  --dart-define=CRISIS_MOSAIC_API_TOKEN=<temporary-access-token>
+```
+
+Token 只用于本地联调，不应写入源码、APK 或 Git 历史。
+
+## 测试
+
+```powershell
+flutter analyze
+flutter test
+```
+
+组件测试覆盖以下关键流程：
+
+- 冲突分析、采信与状态更新。
+- 居民回答定向问题并填补盲区。
+- 六类快捷上报入口。
+- 普通上报的提交、修改和双视角同步。
+- 窄屏幕和大字体下的布局适配。
+- AI 态势简报与居民文本整理。
+
+## 安全边界
+
+- 仓库不应包含高德、AI 服务或后端签名密钥。
+- AI 结果必须明确标注为辅助建议。
+- 远程 Token 只能通过运行环境注入。
+- 当前 Flutter 前端是黑客松交互原型，不应直接用于真实灾害调度。
+
+---
+
+Crisis Mosaic 试图回答一个具体问题：当现场信息彼此矛盾时，我们能否让每一条证据都保留来源、时间和不确定性，并帮助人更快形成可靠判断？
