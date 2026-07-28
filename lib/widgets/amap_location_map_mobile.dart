@@ -5,7 +5,7 @@ import 'package:amap_flutter_location_plus/amap_flutter_location_plus.dart';
 import 'package:amap_flutter_location_plus/amap_location_option.dart';
 import 'package:amap_map/amap_map.dart';
 import 'package:flutter/material.dart';
-import 'package:permission_handler/permission_handler.dart';
+import 'package:permission_handler_platform_interface/permission_handler_platform_interface.dart';
 import 'package:x_amap_base/x_amap_base.dart';
 
 import '../design_system.dart';
@@ -109,7 +109,11 @@ class _AmapLocationMapState extends State<AmapLocationMap> {
       return;
     }
 
-    final permission = await Permission.locationWhenInUse.request();
+    final requestedPermissions = await PermissionHandlerPlatform.instance
+        .requestPermissions([Permission.locationWhenInUse]);
+    final permission =
+        requestedPermissions[Permission.locationWhenInUse] ??
+        PermissionStatus.denied;
     if (!mounted) {
       return;
     }
