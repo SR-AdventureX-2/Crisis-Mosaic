@@ -13,6 +13,8 @@
 </p>
 
 ## 项目背景
+[![FOSSA Status](https://app.fossa.com/api/projects/git%2Bgithub.com%2FSR-AdventureX-2%2FCrisis-Mosaic.svg?type=shield)](https://app.fossa.com/projects/git%2Bgithub.com%2FSR-AdventureX-2%2FCrisis-Mosaic?ref=badge_shield)
+
 
 灾害发生后，现场信息通常来自不同居民、不同时间和不同观察角度。真正困难的并不是“有没有人上报”，而是如何在大量碎片中识别关键事实：哪些信息已经过时，哪些说法互相冲突，哪些区域仍然缺少可靠观察。
 
@@ -207,3 +209,7 @@ flutter test
 ---
 
 Crisis Mosaic 试图回答一个具体问题：当现场信息彼此矛盾时，我们能否让每一条证据都保留来源、时间和不确定性，并帮助人更快形成可靠判断？
+
+
+## License
+[![FOSSA Status](https://app.fossa.com/api/projects/git%2Bgithub.com%2FSR-AdventureX-2%2FCrisis-Mosaic.svg?type=large)](https://app.fossa.com/projects/git%2Bgithub.com%2FSR-AdventureX-2%2FCrisis-Mosaic?ref=badge_large)
